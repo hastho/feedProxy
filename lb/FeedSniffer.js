@@ -1,12 +1,10 @@
-import fetch                from 'node-fetch';
-
 export class FeedSniffer
 {
-  constructor(rssHintTable, jsdom, tools)
+  constructor(rssHintTable, dom, tools)
   {
     // our RSS hints
     this.rssHintTable = rssHintTable;
-    this.jsdom = jsdom;
+    this.dom = dom;
     this.tools = tools;
 
     // candidates & more
@@ -46,16 +44,17 @@ export class FeedSniffer
 
   async checkTheDom(url)
   {
-    console.log('Checking the DOM of:', url);
+    this.tools.log.log('checking the DOM of', url);
+
     const tld = this.tools.tldFromUrl(url);
 
     try
     {
-      const response = await fetch(url);
+      const response = await this.tools.rFetch(url);
       if (response.ok)
       {
         const text = await response.text();
-        const dom = new this.jsdom(text);
+        const dom = new this.dom(text);
         const nodes = dom.window.document.querySelectorAll('link'); //link[rel="alternate"]  // FIXME on zeit.de/index
         let feedURL = '';
 
@@ -85,7 +84,8 @@ export class FeedSniffer
 
   async checkSuspects(url)
   {
-    console.log('Checking the usual suspects for:', url);
+    this.tools.log.log('checking the usual suspects for', url);
+
     for (const suspect of this.usualSuspects)
     {
       try
@@ -104,12 +104,12 @@ export class FeedSniffer
 
   checkHintTable(url)
   {
-    console.log('Checking the hint table for:', url);
+    this.tools.log.log('checking the hint table for', url);
+
     for (const elem of this.rssHintTable)
     {
       const elemURL = elem.url.replace(/\/$/, '');
-
-      if (url == elemURL)
+      if (url.includes(elemURL))
       {
         this.feeds.push(elem.feedUrl);
         break;

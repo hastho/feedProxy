@@ -1,19 +1,111 @@
-import fetch                from 'node-fetch';
-//import { Readability }      from '@mozilla/readability';
+import os                     from 'os';
+import fs                     from 'fs';
+import imgManip               from 'jimp';
+import { JSDOM as dom }       from 'jsdom';
+import * as feedExtractor     from '@extractus/feed-extractor'
+import * as articleExtractor  from '@extractus/article-extractor'
+import * as html5entities     from 'html-entities';
+import iconvLite              from 'iconv-lite';
+
+import { TsvImp }             from '../lb/TsvImp.js';
+import { FeedSniffer }        from '../lb/FeedSniffer.js';
+import { MetadataScraper }    from '../lb/MetadataScraper.js';
+import { FeedReader }         from '../lb/FeedReader.js';
+import { Preview }            from '../lb/Preview.js';
+import { Transcode }          from '../lb/Transcode.js';
+import { ImageProcessor }     from '../lb/ImageProcessor.js';
+import { Downcycle }          from '../lb/Downcycle.js';
+
+import { Html3V }             from '../vw/Html3V.js';
+
 export class ControlC
 {
 
   constructor(tools)
   {
     this.tools = tools;
+    this.rssHintTable = null;
+    this.homedir = os.homedir()+'/.feedProxy/';
+
+    this.rssHintTableFile = this.homedir+'feedProxySheet.csv';
+    if (!fs.existsSync(this.rssHintTableFile))
+    {
+      this.rssHintTableFile = './config/feedProxySheet.csv';
+    }
+
+    this.prefsFile = this.homedir+'prefs.json';
+    if (!fs.existsSync(this.prefsFile))
+    {
+      this.prefsFile = './config/prefs.json';
+    }
   }
 
-  emptyC(res)
+  async init()
+  {
+    const rawTable = await this.tools.readFile(this.rssHintTableFile);
+    this.rssHintTable = new TsvImp().fromTSV(rawTable);
+
+    this.prefs = JSON.parse(await this.tools.readFile(this.prefsFile));
+
+    const transcode = new Transcode(this.prefs, html5entities, iconvLite);
+
+    this.view = new Html3V(this.prefs, transcode);
+  }
+
+  async passthroughC(res, url, feedProxy)
   {
     try
     {
-      res.writeHead(200, {'Content-Type': 'text/html'});
-      res.end('');
+      let bin = null;
+      let size = null;
+      const response = await this.tools.rFetch(url);
+      const conType = response.headers.get("content-type");
+
+      if (conType.includes('text/html'))
+      {
+        bin = await response.text();
+        size = bin.length;
+      }
+      else
+      {
+        bin = await response.arrayBuffer();
+        bin = Buffer.from(new Uint8Array(bin));
+        size = bin.byteLength;
+      }
+      size = (size != null) ? parseInt(size / 1024) : 0;
+
+      if ((size < this.prefs.overloadTreshold) ||
+          (feedProxy == 'indexLoad'))
+      {
+        console.log('processing request as passthrough', url);
+
+        if (conType.includes('text/html'))
+        {
+          console.log('downcycling html for', url);
+          bin = await new Downcycle(dom, this.tools).get(bin);
+          this.tools.log.log(bin);
+          res.writeHead(200, {'Content-Type': 'text/html'});
+          res.end(bin);
+        }
+        else
+        {
+          console.log('passthrough as binary', url);
+          res.writeHead(200, {'Content-Type': conType});
+          res.end(bin, 'binary');
+        }
+      }
+      else
+      {
+        console.log('processing request as overload warning');
+
+        const metadataScraper = new MetadataScraper(dom, this.tools);
+        const meta = await metadataScraper.get(url);
+        this.tools.log.log('page metadata read', meta);
+
+        const html = this.view.drawOverloadWarning(url, meta, size);
+        res.writeHead(200, {'Content-Type': 'text/html'});
+        res.end(html);
+      }
 
       return true;
     }
@@ -24,36 +116,13 @@ export class ControlC
     }
   }
 
-  async feedContentC(view, rssReader, res, url)
+  async imageProxyC(res, url)
   {
     try
     {
-      const feed = await rssReader.read(url);
-      console.log('Feed read successfully.');
+      console.log('processing as image', url);
 
-      const html = view.drawArticlesForFeed(feed);
-
-      res.writeHead(200, {'Content-Type': 'text/html'});
-      res.end(html);
-
-      return true;
-    }
-    catch(err)
-    {
-      console.log(err);
-      return false;
-    }
-  }
-
-  async imageProxyC(Jimp, res, url)
-  {
-    try
-    {
-      let image = await Jimp.read(url);
-      image.resize(256, Jimp.AUTO);
-      image.dither565();
-      const bin = await image.getBufferAsync(Jimp.MIME_GIF); // Returns Promise
-
+      const bin = await new ImageProcessor(imgManip, this.prefs, this.tools).get(url);
       res.writeHead(200, {'Content-Type': 'image/gif'});
       res.end(bin, 'binary');
 
@@ -66,22 +135,34 @@ export class ControlC
     }
   }
 
-  async overviewC(view, feedSniffer, metadataScraper, res, url)
+  async tldC(res, url)
   {
     try
     {
+      const feedSniffer = new FeedSniffer(this.rssHintTable, dom, this.tools);
+
       const feeds = await feedSniffer.get(url);
-      console.log('Feeds found: ', feeds);
+      console.log('feeds found', feeds);
 
-      const meta = await metadataScraper.get(url);
-      console.log('Page metadata read: ', meta);
+      if (feeds.length > 0)
+      {
+        console.log('processing top level domain as feed', url);
 
-      const html = view.drawOverview(url, meta, feeds);
+        const feedReader = new FeedReader(feedExtractor, this.tools);
+        const feed = await feedReader.get(feeds[0]);
 
-      res.writeHead(200, {'Content-Type': 'text/html'});
-      res.end(html);
+        console.log('feed read successfully');
+        this.tools.log.log(feed);
 
-      return true;
+        const html = this.view.drawArticlesForFeed(feed);
+
+        res.writeHead(200, {'Content-Type': 'text/html'});
+        res.end(html);
+
+        return true;
+      }
+
+      return false;
     }
     catch(err)
     {
@@ -90,68 +171,17 @@ export class ControlC
     }
   }
 
-  async passthroughC(req, res, url)
+  async previewC(res, url)
   {
     try
     {
-      let bin = null;
-      const response = await this.tools.rFetch(url);
-      const conType = response.headers.get("content-type");
+      console.log('processing page as preview', url);
 
-      bin = await response.arrayBuffer();
-      bin = Buffer.from(new Uint8Array(bin));
+      const pageObj = await new Preview(articleExtractor, this.tools).get(url);
+      this.tools.log.log('returned preview object', pageObj);
 
-      res.writeHead(200, {'Content-Type': conType});
-      res.end(bin);
-
-      return true;
-    }
-    catch (err)
-    {
-      console.log(err);
-      return false;
-    }
-  }
-
-/*
-  async upcycleC(req, res, view, JSDOM, parser, url)
-  {
-    try
-    {
-      let bin = null;
-      const resp = await this.tools.rFetch(url);
-      let html = await resp.text();
-      let doc = new JSDOM(html, {url: url});
-      doc = doc.window.document;
-      let article = new Readability(doc).parse().content;
-
-      res.writeHead(200, {'Content-Type': 'text/html'});
-      res.end(article);
-
-      return true;
-    }
-    catch (err)
-    {
-      console.log(err);
-      return false;
-    }
-  }
-*/
-
-  async previewC(view, articleParser, res, url)
-  {
-    try
-    {
-      const extractHTMLOptions =
-      {
-        allowedTags: [ 'p', 'span', 'em', 'ul', 'ol', 'li', 'strong', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'h7' ]
-      }
-      articleParser.setSanitizeHtmlOptions(extractHTMLOptions);
-
-      const resp = await fetch(url);
-      const text = await resp.text();
-      const pageObj = await articleParser.extract(text);
-      const html = view.drawPreview(pageObj);
+      const html = this.view.drawPreview(pageObj);
+      this.tools.log.log('returned preview html', html);
 
       res.writeHead(200, {'Content-Type': 'text/html'});
       res.end(html);
@@ -164,4 +194,23 @@ export class ControlC
       return false;
     }
   }
+
+  emptyC(res, url)
+  {
+    try
+    {
+      console.log('processing as empty', url);
+
+      res.writeHead(200, {'Content-Type': 'text/html'});
+      res.end('');
+
+      return true;
+    }
+    catch (err)
+    {
+      console.log(err);
+      return false;
+    }
+  }
+
 }

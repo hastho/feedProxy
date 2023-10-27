@@ -2,7 +2,7 @@ export class TsvImp
 {
   constructor()
   {
-    this.lineSep = '\r\n';
+    this.lineSep = '\n';
     this.colSep = ',';
   }
 
@@ -10,6 +10,8 @@ export class TsvImp
   {
     try
     {
+      str = str.replace(/[\r]+/g, '');
+      str = str.trim();
       const linesArr = str.split(this.lineSep);
       const colNames = linesArr.splice(0, 1)[0].split(this.colSep);
 

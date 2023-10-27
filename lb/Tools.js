@@ -2,27 +2,30 @@ import fetch                from 'node-fetch';
 import fs                   from 'fs/promises';
 import os                   from 'os';
 
-
 // retro fetch
-export async function rFetch(url)
+export async function rFetch(url, headers = null)
 {
   let response = null;
   try
   {
-    response = await fetch(url);
+    log.log('loading', url);
+    response = (headers !== null) ? await fetch(url, headers) : await fetch(url);
     return response;
   }
   catch (error)
   {
-    url = url.replace('https://', 'http://'); // lets try oldschool html second
+    // fallback from https to http
+    url = url.replace(/^https:/i, 'http:');
+    log.log('failed, falling back to HTTP', url);
     try
     {
-      response = await fetch(url);
+      response = (headers !== null) ? await fetch(url, headers) : await fetch(url);
       return response;
     }
     catch (error)
     {
-      return null;
+      log.log('loading failed with HTTPS and HTTP for', url, error)
+      throw error;
     }
   }
 }
@@ -31,12 +34,13 @@ export async function isRss(url)
 {
   try
   {
-    const response = await fetch(url, {method: 'HEAD'});
+    const response = await rFetch(url, {method: 'HEAD'});
     return (response.ok && response.headers.get('content-type').includes('xml'));
   }
   catch (err)
   {
     console.log(err);
+    return false;
   }
 }
 
@@ -44,12 +48,13 @@ export async function isImage(url)
 {
   try
   {
-    const response = await fetch(url, {method: 'HEAD'});
+    const response = await rFetch(url, {method: 'HEAD'});
     return (response.ok && response.headers.get('content-type').includes('image'));
   }
   catch (err)
   {
     console.log(err);
+    return false;
   }
 }
 
@@ -60,10 +65,8 @@ export function reworkURL(pAdress, url)
     url = url.substring(pAdress.length);
   }
 
-  url = url.toLowerCase();
-  url = url.replace('http://','https://'); // lets always try https first
+  url = url.replace(/^http:/i, 'https:');
   url = url.replace(/:[\d]{2,4}\//, '/'); //remove port
-  //url = url.replace(/http/, '/');
   url = url.replace(/\/$/, ''); // remove trailing slash
 
   return url;
@@ -120,3 +123,18 @@ export function getLocalIP()
   }
   return null;
 }
+
+export const log = {
+
+  verbose: false,
+
+  log: function(...args)
+  {
+    if (log.verbose == true)
+    {
+      console.log(...args);
+    }
+  },
+}
+
+

@@ -1,10 +1,8 @@
-import fetch                from 'node-fetch';
-
 export class MetadataScraper
 {
-  constructor(jsdom, tools)
+  constructor(dom, tools)
   {
-    this.jsdom = jsdom;
+    this.dom = dom;
     this.tools = tools;
   }
 
@@ -12,10 +10,10 @@ export class MetadataScraper
   {
     try
     {
-      const response = await fetch(url);
+      const response = await this.tools.rFetch(url);
       const text = await response.text();
 
-      const doc = (new this.jsdom(text)).window.document;
+      const doc = (new this.dom(text)).window.document;
 
       const ret =
       {
