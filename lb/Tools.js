@@ -8,7 +8,7 @@ export async function rFetch(url, headers = null)
   let response = null;
   try
   {
-    log.log('loading', url);
+    cLog('loading', url);
     response = (headers !== null) ? await fetch(url, headers) : await fetch(url);
     return response;
   }
@@ -16,7 +16,7 @@ export async function rFetch(url, headers = null)
   {
     // fallback from https to http
     url = url.replace(/^https:/i, 'http:');
-    log.log('failed, falling back to HTTP', url);
+    cLog('failed, falling back to HTTP', url);
     try
     {
       response = (headers !== null) ? await fetch(url, headers) : await fetch(url);
@@ -24,7 +24,7 @@ export async function rFetch(url, headers = null)
     }
     catch (error)
     {
-      log.log('loading failed with HTTPS and HTTP for', url, error)
+      cLog('loading failed with HTTPS and HTTP for', url, error)
       throw error;
     }
   }
@@ -44,27 +44,22 @@ export async function isRss(url)
   }
 }
 
-export async function isImage(url)
+export async function getMimeType(url)
 {
   try
   {
     const response = await rFetch(url, {method: 'HEAD'});
-    return (response.ok && response.headers.get('content-type').includes('image'));
+    return response.headers.get('content-type').toString().toLowerCase();
   }
   catch (err)
   {
     console.log(err);
-    return false;
+    return 'text/html';
   }
 }
 
-export function reworkURL(pAdress, url)
+export function reworkURL(url)
 {
-  if (url.startsWith(pAdress))
-  {
-    url = url.substring(pAdress.length);
-  }
-
   url = url.replace(/^http:/i, 'https:');
   url = url.replace(/:[\d]{2,4}\//, '/'); //remove port
   url = url.replace(/\/$/, ''); // remove trailing slash
@@ -124,17 +119,11 @@ export function getLocalIP()
   return null;
 }
 
-export const log = {
-
-  verbose: false,
-
-  log: function(...args)
+// conditional logging
+export function cLog(...args)
+{
+  if (globalThis.verboseLogging)
   {
-    if (log.verbose == true)
-    {
-      console.log(...args);
-    }
-  },
+    console.log(...args);
+  }
 }
-
-

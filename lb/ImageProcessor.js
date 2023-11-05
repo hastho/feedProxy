@@ -1,33 +1,42 @@
+import * as tools from '../lb/Tools.js';
+import imgManip from 'sharp';
+import svg2img  from 'svg2img';
+
 export class ImageProcessor
 {
-  constructor(imgManip, prefs, tools)
+  constructor(prefs)
   {
-    this.imgManip = imgManip;
     this.prefs = prefs;
-    this.tools = tools;
   }
 
-  async get(url, newWidth = null)
+  async get(mimeType, url)
   {
     try
     {
-      let imgBuffer = await this.tools.rFetch(url);
-      imgBuffer = await imgBuffer.arrayBuffer();
+      let bin = null;
+      let imgBuffer = await tools.rFetch(url);
 
-      let image = await this.imgManip.read(imgBuffer);
-      let w = image.bitmap.width; //  width of the image
-
-      if (newWidth == null)
+      if (mimeType == 'image/svg+xml')
       {
-        newWidth = (w < this.prefs.imagesSize) ? w : this.prefs.imagesSize;
+        imgBuffer = await imgBuffer.text();
+        imgBuffer = await new Promise(function (resolve, reject)
+        {
+          svg2img(imgBuffer, function(error, buffer)
+          {
+            if (error) reject();
+            resolve(buffer);
+          });
+        })
       }
-      image.resize(newWidth, this.imgManip.AUTO);
-
-      if (this.prefs.imagesDither)
+      else
       {
-        image.dither565();
+        imgBuffer = await imgBuffer.arrayBuffer();
       }
-      const bin = await image.getBufferAsync(this.imgManip.MIME_GIF); // Returns Promise
+
+      const data = await imgManip(imgBuffer).metadata();
+      const w = data.width;
+      const newWidth = (w < this.prefs.imagesSize) ? w : this.prefs.imagesSize;
+      bin = await imgManip(imgBuffer).resize(newWidth).gif().toBuffer();
 
       return bin;
     }
@@ -38,4 +47,3 @@ export class ImageProcessor
   }
 
 }
-

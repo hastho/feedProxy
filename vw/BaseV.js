@@ -1,14 +1,15 @@
-export class Transcode
+import * as html5entities     from 'html-entities';
+import iconvLite              from 'iconv-lite';
+
+export class BaseV
 {
   /**
    * Entities
    * ________________________________________________________________
    */
-  constructor(prefs, html5entities, iconvLite)
+  constructor(prefs)
   {
     this.prefs = prefs;
-    this.html5entities = html5entities;
-    this.iconvLite = iconvLite;
   }
 
   /**
@@ -18,19 +19,19 @@ export class Transcode
   HTML2Text(str)
   {
     str = str.replace(/(<([^>]+)>)/gi, "");
-    str = this.html5entities.decode(str);
+    str = html5entities.decode(str);
 
     return str;
   }
 
   /**
-   * Downgrade to ISO-8859-1
+   * Downgrade to ASCII
    * what can not be downgraded will be converted to HTML entities (see below)
    * ________________________________________________________________
    */
-  Utf8ToIso(str)
+  Utf8ToAscii(str)
   {
-    const bytes = this.iconvLite.encode(Buffer.from(str, 'UTF-8'), 'ISO-8859-1'); // works somewhat
+    const bytes = iconvLite.encode(Buffer.from(str, 'UTF-8'), 'ASCII//TRANSLIT'); // works somewhat
     return bytes.toString();
   }
 
@@ -364,4 +365,102 @@ export class Transcode
 
     return text;
   }
+
+  /**
+   *
+   * add value of the feedProxy component to the url
+   * ________________________________________________________________
+   */
+  setUrlFeedProxyParam(url, val)
+  {
+    let link = new URL(url);
+    let params = link.searchParams;
+    params.set('feedProxy', val);
+    link = link.toString();
+
+    return link;
+  }
+
+  /**
+   * open page
+   * _____________________________________________________________________
+   */
+  openPage()
+  {
+    let erg = '';
+    let enc = 'UTF-8'; // ASCII with entities should still be valid UTF-8
+
+    erg += '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2//EN">';
+
+    erg += '<html>';
+    erg += '<head>';
+    erg += '<meta charset="'+enc+'">';
+    erg += '<meta http-equiv="Content-Type" content="text/html;charset='+enc+'">';
+    erg += '</head>';
+
+    if (this.prefs.outputLightOrDark == 'light')
+    { // light mode
+      erg += '<body text="#000000" bgcolor="#FFFFFF" link="#0000FF" vlink="#0000FF">';
+    }
+    else
+    { // dark mode
+      erg += '<body text="#FFFFFF" bgcolor="#000000" link="#006699" vlink="#006699">';
+    }
+
+    erg += '<table border="0" width="100%" cellpadding="0">'+
+            '<tr>'+
+              '<td></td>'+
+              '<td width="600">'+
+              '<font face="'+this.prefs.outputFontFace+'">';
+
+    return erg;
+  }
+
+  /**
+   * close the page
+   * ________________________________________________________________
+   */
+  closePage()
+  {
+    let erg = '';
+    erg += '</font>';
+    erg += '</td>';
+    erg += '<td></td>';
+    erg += '</tr>';
+    erg += '</table';
+    erg += '</body>';
+    erg += '</html>';
+
+    return erg;
+  }
+
+  /**
+   * Fix up the html for retro browsers
+   * ________________________________________________________________
+   */
+   prepareHTML(html)
+  {
+    html = this.https2http(html);
+    html = this.transformEncoding(html);
+    //html = this.Utf8ToAscii(html);
+
+    return html;
+  }
+
+  https2http(html)
+  {
+    html = html.replace(/https\:\/\//gi, 'http://');
+
+    return html;
+  }
+
+  transformEncoding(html)
+  {
+    if (this.prefs.encodingUTF8toAsciiAndEntities)
+    {
+      html = this.Utf8ToHTML(html);
+    }
+    return html;
+  }
+
 }
