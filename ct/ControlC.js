@@ -1,11 +1,10 @@
 import os                     from 'os';
 import fs                     from 'fs';
-import chardet                from 'chardet';
 
 import * as tools             from '../lb/Tools.js';
 import { TsvImp }             from '../lb/TsvImp.js';
 import { FeedSniffer }        from '../lb/FeedSniffer.js';
-import { MetadataScraper }    from '../lb/MetadataScraper.js';
+
 import { FeedReader }         from '../lb/FeedReader.js';
 import { ImageProcessor }     from '../lb/ImageProcessor.js';
 import { Downcycler }         from '../lb/Downcycler.js';
@@ -45,18 +44,22 @@ export class ControlC
     this.prefs = JSON.parse(await tools.readFile(this.prefsFile));
   }
 
-  async imageProxyC(res, mimeType, url)
+  async imageProxyC(res, pl)
   {
-    if ((mimeType) &&
-         mimeType.includes('image') &&
-        (mimeType != 'image/gif'))
+    if ((pl.mimeType) &&
+         pl.mimeType.includes('image') &&
+        (pl.mimeType != 'image/gif'))
     {
       try
       {
-        console.log('processing as image', url, mimeType);
+        console.log('processing original image', pl.url, pl.mimeType);
 
-        const bin = await new ImageProcessor(this.prefs).get(mimeType, url);
-        res.writeHead(200, {'Content-Type': 'image/gif'});
+        const bin = await new ImageProcessor(this.prefs).get(pl.url);
+        if (this.prefs.imagesAsJpeg) {
+          res.writeHead(200, {'Content-Type': 'image/jpeg'});
+        } else {
+          res.writeHead(200, {'Content-Type': 'image/gif'});
+        }
         res.end(bin, 'binary');
 
         return true;
@@ -70,99 +73,62 @@ export class ControlC
     return false;
   }
 
-  async indexAsFeedC(res, tld, url)
+  async indexAsFeedC(res, pl)
   {
-    if (url == tld)
+    if (pl.url == pl.tld)
     {
-      try
+      if ((pl.meta.isHTML5) || (this.prefs.downcycleEnableForHTML4 == true))
       {
-        const feedSniffer = new FeedSniffer(this.rssHintTable);
-
-        const feeds = await feedSniffer.get(url);
-        console.log('feeds found', feeds);
-
-        if (feeds.length > 0)
+        try
         {
-          console.log('processing top level domain as feed', url);
+          const feeds = await new FeedSniffer(pl.url, pl.html, this.rssHintTable).get();
 
-          const feedReader = new FeedReader();
-          const feed = await feedReader.get(feeds[0]);
+          if (feeds.length > 0)
+          {
+            console.log('processing top level domain as feed', pl.url);
+            console.log('feeds found', pl.url, feeds);
 
-          console.log('feed read successfully');
-          tools.cLog(feed);
+            const feed = await new FeedReader().get(feeds[0]);
 
-          const html = new FeedV(this.prefs).draw(feed);
+            console.log('feed read successfully');
+            tools.cLog(feed);
 
-          res.writeHead(200, {'Content-Type': 'text/html'});
-          res.end(html);
+            const html = new FeedV(this.prefs).draw(feed);
+            tools.cLog(html);
 
-          return true;
+            res.writeHead(200, {'Content-Type': 'text/html'});
+            res.end(html);
+
+            return true;
+          }
         }
-      }
-      catch(err)
-      {
-        console.log(err);
+        catch(err)
+        {
+          console.log(err);
+        }
       }
     }
 
     return false;
   }
 
-  async pageC(res, url, mimeType, feedProxy)
+  async overloadC(res, pl, feedProxy)
   {
-    if ((mimeType) &&
-         mimeType.includes('text/html'))
+    if ((pl.mimeType) && pl.mimeType.includes('text/html'))
     {
       try
       {
-        let data = null;
-        let size = null;
-        let pageObj = null;
-
-        const response = await tools.rFetch(url);
-        data = await response.arrayBuffer();
-        data = Buffer.from(new Uint8Array(data));
-
-        const encoding = chardet.detect(data);
-        let decoder = new TextDecoder(encoding);
-        data = decoder.decode(data);
-        size = data.length;
-
-        size = (size != null) ? parseInt(size / 1024) : 0;
-
-        if ((size < this.prefs.overloadTreshold) ||
-            (feedProxy == 'loadingConfirmed'))
+        if ((pl.size > this.prefs.overloadTreshold) && (feedProxy != 'lP'))
         {
-          pageObj = new Downcycler(url, this.prefs).get(data);
-          if (pageObj.type == 'article')
-          {
-            console.log('processing request as downcycled article', url);
-            data = new ArticleV(this.prefs).draw(pageObj);
-          }
-          else
-          {
-            console.log('processing request as downcycled page', url);
-            data = new StrippedV(this.prefs).draw(pageObj);
-          }
+          console.log('processing request as overload warning', pl.url);
 
-          tools.cLog(data);
-          res.writeHead(200, {'Content-Type': mimeType});
-          res.end(data);
-        }
-        else
-        {
-          console.log('processing request as overload warning');
+          const html = new OverloadWarningV(this.prefs).draw(pl.url, pl.meta, pl.size);
 
-          const metadataScraper = new MetadataScraper();
-          const meta = await metadataScraper.get(url);
-          tools.cLog('page metadata read', meta);
-
-          const html = new OverloadWarningV(this.prefs).draw(url, meta, size);
-          res.writeHead(200, {'Content-Type': mimeType});
+          res.writeHead(200, {'Content-Type': pl.mimeType});
           res.end(html);
-        }
 
-        return true;
+          return true;
+        }
       }
       catch (err)
       {
@@ -173,13 +139,80 @@ export class ControlC
     return false;
   }
 
-  async passthroughC(res, url, mimeType)
+  async articleC(res, pl, feedProxy)
+  {
+    if (
+        (pl.mimeType && pl.mimeType.includes('text/html')) &&
+        ((feedProxy == 'lA') || (this.prefs.downcycleDetectReaderable == true))
+       )
+    {
+      try
+      {
+        const ds = new Downcycler(pl.url, pl.html, this.prefs);
+
+        if (
+             ((feedProxy == 'lA') || ds.isArticle()) &&
+             ((pl.meta.isHTML5) || (this.prefs.downcycleEnableForHTML4 == true))
+           )
+        {
+          console.log('processing request as downcycled article', pl.url);
+
+          const pageObj = ds.getArticle();
+          const html = new ArticleV(this.prefs).draw(pageObj);
+
+          tools.cLog(html);
+          res.writeHead(200, {'Content-Type': pl.mimeType});
+          res.end(html);
+
+          return true;
+        }
+      }
+      catch (err)
+      {
+        console.log(err);
+      }
+    }
+
+    return false;
+  }
+
+  async pageC(res, pl)
+  {
+    if ((pl.mimeType) && pl.mimeType.includes('text/html'))
+    {
+      try
+      {
+        if ((pl.meta.isHTML5) || (this.prefs.downcycleEnableForHTML4 == true))
+        {
+          console.log('processing request as downcycled page', pl.url);
+
+          let html = null;
+          html = new Downcycler(pl.url, pl.html, this.prefs).getStrippedPage();
+          html = new StrippedV(this.prefs).draw(html);
+
+          tools.cLog(html);
+          res.writeHead(200, {'Content-Type': pl.mimeType});
+          res.end(html);
+
+          return true;
+        }
+      }
+      catch (err)
+      {
+        console.log(err);
+      }
+    }
+
+    return false;
+  }
+
+  async passthroughC(res, pl)
   {
     try
     {
-      console.log('processing request as passthrough', url, mimeType);
+      console.log('processing request as passthrough', pl.url, pl.mimeType);
 
-      const fetchResponse = await tools.rFetch(url);
+      const fetchResponse = await tools.rFetch(pl.url);
       fetchResponse.body.pipe(res);
 
       return true;
@@ -192,13 +225,13 @@ export class ControlC
     return false;
   }
 
-  emptyC(res, url, mimeType)
+  emptyC(res, pl)
   {
     try
     {
-      console.log('processing as empty', url, mimeType);
+      console.log('processing as empty', pl.url, pl.mimeType);
 
-      res.writeHead(200, {'Content-Type': mimeType});
+      res.writeHead(200, {'Content-Type': pl.mimeType});
       res.end('');
 
       return true;

@@ -5,44 +5,41 @@ import normalizeWhitespace                      from 'normalize-html-whitespace'
 
 export class Downcycler
 {
-  constructor(url, prefs)
+  constructor(url, html, prefs)
   {
     this.url = url;
+    this.html = html;
     this.prefs = prefs;
   }
 
-  get(html)
+  isArticle()
   {
-    try
-    {
-      let pageObj = {};
-      const doc = new dom(html, {url: this.url});
-      if (isReaderable(doc.window.document))
-      {
-        let reader = new articleExtractor(doc.window.document);
-        pageObj = reader.parse();
-        pageObj.content = this.removeTags(pageObj.content, true);
-        pageObj.content = this.removeAttrs(pageObj.content, true);
-        pageObj.content = this.boxImages(pageObj.content, true);
-        pageObj.content = normalizeWhitespace(pageObj.content);
-        pageObj.type = 'article';
-      }
-      else
-      {
-        html = this.removeTags(html, false);
-        html = this.removeAttrs(html, false);
-        html = this.boxImages(html, true);
-        html = normalizeWhitespace(html);
-        pageObj.content = html;
-        pageObj.type = 'stripped';
-      }
+    const doc = new dom(this.html, {url: this.url});
+    return isReaderable(doc.window.document);
+  }
 
-      return pageObj;
-    }
-    catch(err)
-    {
-      throw(err);
-    }
+  getArticle()
+  {
+    const doc = new dom(this.html, {url: this.url});
+    const reader = new articleExtractor(doc.window.document);
+
+    const pageObj = reader.parse();
+    pageObj.content = this.removeTags(pageObj.content, true);
+    pageObj.content = this.removeAttrs(pageObj.content, true);
+    pageObj.content = this.boxImages(pageObj.content, true);
+    pageObj.content = normalizeWhitespace(pageObj.content);
+
+    return pageObj;
+  }
+
+  getStrippedPage()
+  {
+    let htm = '';
+    htm = this.removeTags(this.html, false);
+    htm = this.removeAttrs(htm, false);
+    htm = this.boxImages(htm, true);
+    htm = normalizeWhitespace(htm);
+    return htm;
   }
 
   removeTags(html, htmlIsFragment)

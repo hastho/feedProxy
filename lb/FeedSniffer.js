@@ -3,84 +3,69 @@ import { JSDOM as dom }       from 'jsdom';
 
 export class FeedSniffer
 {
-  constructor(rssHintTable)
+  constructor(url, html, rssHintTable)
   {
+    // url / html
+    this.url = url;
+    this.html = html;
+
     // our RSS hints
     this.rssHintTable = rssHintTable;
 
     // candidates & more
-    this.types = ['application/rss+xml', 'application/atom+xml'];
+    this.types = ['application/rss+xml', 'application/atom+xml', 'application/xml'];
     this.usualSuspects = ['/feed.xml', '/rss.xml', '/feed', '/rss', '/atom.xml', '/.rss', '/rssfeed.rdf'];
 
     // the return value
     this.feeds = [];
   }
 
-  async get(url)
+  async get()
   {
-    try
+    this.checkHintTable(this.url);
+
+    if (this.feeds.length == 0)
     {
-      this.checkHintTable(url);
+      await this.checkTheDom(this.url, this.html);
 
       if (this.feeds.length == 0)
       {
-        await this.checkTheDom(url);
-
-        if (this.feeds.length == 0)
-        {
-          await this.checkSuspects(url);
-        }
+        await this.checkSuspects(this.url);
       }
-
-      // remove duplicates
-      const feeds = [...new Set(this.feeds)];
-
-      return feeds;
     }
-    catch (err)
-    {
-      console.log(err);
-    }
+
+    // remove duplicates
+    const feeds = [...new Set(this.feeds)];
+
+    return feeds;
   }
 
-  async checkTheDom(url)
+  async checkTheDom(url, html)
   {
     tools.cLog('checking the DOM of', url);
 
     const tld = tools.tldFromUrl(url);
 
-    try
-    {
-      const response = await tools.rFetch(url);
-      if (response.ok)
-      {
-        const text = await response.text();
-        const doc = new dom(text, {url: url});
-        const nodes = doc.window.document.querySelectorAll('link'); //link[rel="alternate"]  // FIXME on zeit.de/index
-        let feedURL = '';
+    const doc = new dom(html, {url: url});
+    const nodes = doc.window.document.querySelectorAll('link'); //link[rel="alternate"]  // FIXME on zeit.de/index
+    let feedURL = '';
 
-        nodes.forEach((node) =>
-        {
-          if (this.types.includes(node.getAttribute('type')))
-          {
-            const href = node.getAttribute('href');
-            if (!href.startsWith('http'))
-            {
-              feedURL = (href.startsWith('/')) ? tld + href : tld + '/' + href;
-            }
-            else
-            {
-              feedURL = href;
-            }
-            this.feeds.push(feedURL);
-          }
-        });
-      }
-    }
-    catch(err)
+    nodes.forEach((node) =>
     {
-      console.log(err);
-    }
+      if (this.types.includes(node.getAttribute('type')))
+      {
+        const href = node.getAttribute('href');
+        if (!href.startsWith('http'))
+        {
+          feedURL = (href.startsWith('/')) ? tld + href : tld + '/' + href;
+        }
+        else
+        {
+          feedURL = href;
+        }
+        this.feeds.push(feedURL);
+      }
+    });
   }
 
   async checkSuspects(url)
@@ -119,4 +104,3 @@ export class FeedSniffer
   }
 
 }
-

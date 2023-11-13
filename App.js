@@ -5,6 +5,7 @@ import * as http            from 'http';
 // Our own modules
 import * as tools           from './lb/Tools.js';
 import { ControlC }         from './ct/ControlC.js';
+import { Payload }          from './lb/Payload.js';
 
 // Globals
 const hostname = '0.0.0.0';
@@ -29,49 +30,67 @@ class App
 
   async router(request, response)
   {
-    let url = request.url;
-    let tld = '';
     let wasProcessed = false;
+    let url = request.url;
     const feedProxy = new URL(url).searchParams.get('feedProxy');
-
     url = tools.reworkURL(url);
-    tld = tools.tldFromUrl(url);
 
-    console.log('working on request', url);
-    const mimeType = await tools.getMimeType(url);
-
-    // image - proxy image, convert to GIF if not GIF yet
-    if (wasProcessed === false)
+    try
     {
-      wasProcessed = await this.cntrl.imageProxyC(response, mimeType, url);
-    }
+      const payload = await new Payload(url, this.cntrl.prefs).get();
+      console.log('working on request', payload);
 
-    // Process top level domain as feed, if one exists
-    if (wasProcessed === false)
+      // image - proxy image, convert to GIF if not GIF yet
+      if (wasProcessed === false)
+      {
+        wasProcessed = await this.cntrl.imageProxyC(response, payload);
+      }
+
+      // Process top level domain as feed (if one exists)?
+      if (wasProcessed === false)
+      {
+        wasProcessed = await this.cntrl.indexAsFeedC(response, payload);
+      }
+
+      // process as overload warning?
+      if (wasProcessed === false)
+      {
+        wasProcessed = await this.cntrl.overloadC(response, payload, feedProxy);
+      }
+
+      // process as article?
+      if (wasProcessed === false)
+      {
+        wasProcessed = await this.cntrl.articleC(response, payload, feedProxy);
+      }
+
+      // process as downcycle?
+      if (wasProcessed === false)
+      {
+        wasProcessed = await this.cntrl.pageC(response, payload);
+      }
+
+      // if not processed, passthru - hopefully just big text files or binary downloads...
+      if (wasProcessed === false)
+      {
+        wasProcessed = await this.cntrl.passthroughC(response, payload, feedProxy);
+      }
+
+      // if still not processed (error...?): return empty, works best.
+      if (wasProcessed === false)
+      {
+        wasProcessed = this.cntrl.emptyC(response, payload);
+      }
+
+      console.log('done with request', payload.url);
+      console.log('');
+    }
+    catch (e)
     {
-      wasProcessed = await this.cntrl.indexAsFeedC(response, tld, url);
+      console.log('processing as most generic error', url);
+      response.writeHead(200, {'Content-Type': 'text/html'});
+      response.end('');
     }
-
-    // do downcycle, passthrough or show overload warning screen
-    if (wasProcessed === false)
-    {
-      wasProcessed = await this.cntrl.pageC(response, url, mimeType, feedProxy);
-    }
-
-    // if not processed, passthru - hopefully just big text files or binary downloads...
-    if (wasProcessed === false)
-    {
-      wasProcessed = await this.cntrl.passthroughC(response, url, mimeType, feedProxy);
-    }
-
-    // if still not processed (error...?): return empty, works best.
-    if (wasProcessed === false)
-    {
-      wasProcessed = this.cntrl.emptyC(response, url, mimeType);
-    }
-
-    console.log('done with request', url);
-    console.log('');
   }
 }
 

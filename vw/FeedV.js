@@ -18,10 +18,13 @@ export class FeedV extends BaseV
 
     if (articles.entries.length > 0)
     {
-      for (const article of articles.entries)
+      for (let i=0; i < articles.entries.length; i++)
       {
+        const article = articles.entries[i];
+        const url = this.setUrlFeedProxyParam(article.link, 'lA');
+
         erg += '<p>';
-        erg += '<a href="'+article.link+'">'+article.title+'</a>';
+        erg += '<a href="'+url+'">'+article.title+'</a>';
         erg += '</p>';
         erg += '<p>';
 
@@ -35,6 +38,8 @@ export class FeedV extends BaseV
         erg += '&nbsp;'+((article.published !== '') ? '<small>('+article.published+')</small>' : '');
         erg += '</p>';
         erg += '<br>';
+
+        if (i >= (this.prefs.feedListLength-1)) break;
       }
     }
 

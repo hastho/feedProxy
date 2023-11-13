@@ -3,28 +3,35 @@ import { JSDOM as dom }       from 'jsdom';
 
 export class MetadataScraper
 {
-  async get(url)
+
+  constructor(url, html, prefs)
   {
-    try
+    this.url = url;
+    this.prefs = prefs;
+    this.html = html;
+  }
+
+  async get()
+  {
+    const doc = new dom(this.html, {url: this.url}).window.document;
+    const ret =
     {
-      const response = await tools.rFetch(url);
-      const text = await response.text();
+      title: this.extractTitle(doc),
+      description: this.extractDescription(doc),
+      image: this.extractImage(doc, this.url),
+      isHTML5: this.isHTML5(doc)
+    };
 
-      const doc = new dom(text, {url: url}).window.document;
+    return ret;
+  }
 
-      const ret =
-      {
-        title: this.extractTitle(doc),
-        description: this.extractDescription(doc),
-        image: this.extractImage(doc, url)
-      };
-
-      return ret;
-    }
-    catch(err)
+  isHTML5(doc)
+  {
+    if (doc.doctype != null)
     {
-      throw(err);
+      return (doc.doctype.publicId == '') ? true : false;
     }
+    return true;
   }
 
   extractTitle(doc)
